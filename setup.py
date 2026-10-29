@@ -7,7 +7,7 @@ setup(
     name="elumichai",
     version="1.0.0",
     description="Free, offline file conversion tool for Linux — inspired by Tangerine for macOS",
-    long_description=open("README.md").read(),
+    long_description=open("README.md", "r", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
     author="Open Source Community",
     license="MIT",

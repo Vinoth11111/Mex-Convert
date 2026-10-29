@@ -150,10 +150,6 @@ class GlobalDragMonitor(QObject):
     def _mode_for_mask(cls, mask: int) -> str | None:
         if mask & _X11Pointer.SHIFT_MASK:
             return "formats"
-        # Fn generally has no X11 keysym. Ctrl and Super/Meta are practical
-        # Linux equivalents for the tools modifier. Alt is intentionally not
-        # used because desktop file managers commonly reserve Alt-drag for
-        # moving files between tabs/windows.
         if mask & (_X11Pointer.CONTROL_MASK | _X11Pointer.META_MASK):
             return "tools"
         return None

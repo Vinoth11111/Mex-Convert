@@ -170,7 +170,7 @@ class RadialMenu(QWidget):
         self._global_cursor = global_pos
         self._file_paths = []
         self._format_items = []
-        self._tool_items = []
+        self._tool_items = ["compress", "edit_metadata", "crop_images", "trim_video", "merge_pdfs"]
         self._wheel = wheel if wheel in {"formats", "tools"} else "formats"
         self._hovered_index = -1
         self._hovered_center = False
@@ -334,28 +334,31 @@ class RadialMenu(QWidget):
             self.update()
 
     def dragEnterEvent(self, event) -> None:  # noqa: N802
+        event.setDropAction(Qt.CopyAction)
         if event.mimeData().hasUrls() or event.mimeData().hasFormat("text/uri-list"):
-            paths = []
-            if event.mimeData().hasUrls():
-                paths = [url.toLocalFile() for url in event.mimeData().urls() if url.isLocalFile()]
+            paths = [url.toLocalFile() for url in event.mimeData().urls() if url.isLocalFile()]
+            if not paths and event.mimeData().hasFormat("text/uri-list"):
+                raw = event.mimeData().data("text/uri-list").data().decode("utf-8", errors="ignore")
+                paths = [line.strip() for line in raw.splitlines() if line.strip() and not line.startswith("#")]
             if paths:
                 self._file_paths = paths
                 try:
                     from citrus_converter.formats import get_conversions_for_file, get_tools_for_file
-                    self._format_items = get_conversions_for_file(paths[0])[:12]
-                    self._tool_items = get_tools_for_file(paths[0])[:12]
+                    conversions = get_conversions_for_file(paths[0])
+                    tools = get_tools_for_file(paths[0])
+                    if conversions:
+                        self._format_items = conversions[:12]
+                    if tools:
+                        self._tool_items = tools[:12]
                 except Exception:
-                    self._format_items = []
-                    self._tool_items = []
-                self.update()
-            event.acceptProposedAction()
+                    pass
+            self.update()
+        event.acceptProposedAction()
 
     def dragMoveEvent(self, event) -> None:  # noqa: N802
-        pos = QPointF(event.pos())
-        self._hovered_index = self._index_at(pos, allow_outside=self._global_mode)
-        c = self._centre()
-        inner_r, _, _ = self._radii()
-        self._hovered_center = math.hypot(pos.x() - c.x(), pos.y() - c.y()) < inner_r
+        self._hovered_index = self._index_at(
+            QPointF(event.pos()), allow_outside=self._global_mode
+        )
         self.update()
         event.acceptProposedAction()
 
@@ -491,10 +494,8 @@ class RadialMenu(QWidget):
         inner_rect = QRectF(c.x() - i_r, c.y() - i_r, i_r * 2, i_r * 2)
 
         path = QPainterPath()
-        # Qt angles are in 1/16th of a degree for arcTo; but QPainterPath uses degrees.
         path.arcMoveTo(outer_rect, start_deg)
         path.arcTo(outer_rect, start_deg, span_deg)
-        # line to inner arc end
         path.arcTo(inner_rect, start_deg + span_deg, -span_deg)
         path.closeSubpath()
 
@@ -533,9 +534,6 @@ class RadialMenu(QWidget):
 
     def _draw_centre(self, p: QPainter, c: QPointF, r: float) -> None:
         """Draw the centre circle showing input file info."""
-        # The global overlay can appear a moment before Xdnd delivers the
-        # file URL. Avoid painting a solid disk in that empty state; it looks
-        # like a black hole underneath the dragged file.
         if self._global_mode and not self._file_paths:
             p.setPen(QPen(QColor(255, 149, 0, 180), 2.0))
             p.setBrush(Qt.NoBrush)
@@ -607,19 +605,16 @@ class RadialMenu(QWidget):
     def _draw_toggle(self, p: QPainter) -> None:
         """Draw the small Formats/Tools toggle button."""
         rect = self._toggle_rect()
-        # pill background
         path = QPainterPath()
         path.addRoundedRect(rect, 13, 13)
         p.setPen(Qt.NoPen)
         p.setBrush(QBrush(QColor("#3a3a3a")))
         p.drawPath(path)
 
-        # border
         p.setPen(QPen(ACCENT, 1.2))
         p.setBrush(Qt.NoBrush)
         p.drawPath(path)
 
-        # label
         label = {"formats": "⇧ Formats", "tools": "⌘ Tools", "actions": "⌃ Actions"}[self._wheel]
         p.setPen(QPen(TEXT_WHITE))
         p.setFont(QFont("Sans", 9, QFont.DemiBold))

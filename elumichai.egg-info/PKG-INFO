@@ -1,4 +1,4 @@
-Metadata-Version: 2.1
+Metadata-Version: 2.4
 Name: elumichai
 Version: 1.0.0
 Summary: Free, offline file conversion tool for Linux — inspired by Tangerine for macOS
@@ -16,6 +16,16 @@ Classifier: Topic :: Multimedia :: Video :: Conversion
 Requires-Python: >=3.9
 Description-Content-Type: text/markdown
 License-File: LICENSE
+Requires-Dist: PySide6>=6.5
+Dynamic: author
+Dynamic: classifier
+Dynamic: description
+Dynamic: description-content-type
+Dynamic: license
+Dynamic: license-file
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary
 
 # 🍋 Elumichai
 
@@ -27,7 +37,7 @@ License-File: LICENSE
 
 ## Features
 
-- **Background drag workflow** — The app starts in the tray; hold Shift while dragging for conversions or Ctrl/Alt/Super for tools
+- **Background drag workflow** — The app starts in the tray; hold Shift while dragging for conversions or Ctrl/Super for tools
 - **Tangerine-compatible format wheel** — Images, video, audio, PDF, documents, slides, spreadsheets, subtitles, and archives
 - **Built-in Tools** — Compress, resize, crop, trim, merge PDFs, strip metadata, and more
 - **100% Free** — No trial limits, no subscriptions, no payment ever
@@ -65,7 +75,7 @@ License-File: LICENSE
 ### Quick Install (Debian 12 / Ubuntu)
 
 ```bash
-git clone <repo-url> elumichai
+git clone https://github.com/Vinoth11111/Mex-Convert
 cd elumichai
 chmod +x install.sh
 ./install.sh
@@ -93,7 +103,7 @@ elumichai
 ```
 1. Elumichai starts automatically in the system tray after installation/login.
 2. Drag a file from your file manager while holding **Shift** for conversions.
-3. Hold **Ctrl**, **Alt**, or **Super/Meta** (the Linux equivalent of Fn) for Tools.
+3. Hold **Ctrl** or **Super/Meta** (Linux equivalents of Fn) for Tools. Alt remains available for normal file-manager dragging.
 4. Release the file over a ring option. Wheel navigation makes a short sound when enabled.
 5. The converted file is saved next to the original.
 
