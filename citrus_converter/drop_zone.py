@@ -150,10 +150,12 @@ class DropZone(QWidget):
         if mime.hasUrls():
             for url in mime.urls():
                 local = url.toLocalFile()
+                if not local and url.scheme() == "file":
+                    local = unquote(url.path())
                 if local and os.path.exists(local):
                     paths.append(local)
-        elif mime.hasFormat("text/uri-list"):
-            raw = bytes(mime.data("text/uri-list")).decode("utf-8")
+        if not paths and mime.hasFormat("text/uri-list"):
+            raw = bytes(mime.data("text/uri-list")).decode("utf-8", errors="ignore")
             for line in raw.splitlines():
                 line = line.strip()
                 if line.startswith("file://"):

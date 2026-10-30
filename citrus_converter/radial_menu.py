@@ -15,6 +15,7 @@ from __future__ import annotations
 import math
 import os
 from typing import List, Optional
+from urllib.parse import unquote
 
 from PySide6.QtCore import (
     Qt,
@@ -27,6 +28,7 @@ from PySide6.QtCore import (
     Signal,
     Property,
     QTimer,
+    QUrl,
 )
 from PySide6.QtGui import (
     QPainter,
@@ -50,6 +52,42 @@ BG_SEGMENT_HOVER = QColor("#3a3a3a")
 TEXT_WHITE = QColor("#ffffff")
 TEXT_GREY = QColor("#999999")
 GAP_DEG = 3.0  # gap between arc segments in degrees
+
+# Default fallbacks so the radial menu never renders an empty ring without text
+DEFAULT_FORMATS = ["png", "jpg", "webp", "pdf", "mp4", "mp3", "docx", "zip"]
+DEFAULT_TOOLS = ["compress", "edit_metadata", "crop_images", "trim_video", "merge_pdfs"]
+
+TOOL_DISPLAY_NAMES = {
+    "compress": "COMPRESS",
+    "edit_metadata": "METADATA",
+    "edit_photos": "EDIT",
+    "annotate_photos": "ANNOTATE",
+    "add_background": "BACKGROUND",
+    "crop_images": "CROP",
+    "crop_video": "CROP",
+    "redact_photos": "REDACT",
+    "redact_video": "REDACT",
+    "create_pdf": "PDF",
+    "create_collage": "COLLAGE",
+    "trim_video": "TRIM",
+    "trim_audio": "TRIM",
+    "change_video_speed": "SPEED",
+    "join_videos": "JOIN",
+    "save_video_frames": "FRAMES",
+    "split_video": "SPLIT",
+    "normalize_volume": "NORMALIZE",
+    "create_audio_visualizer": "VISUALIZER",
+    "convert_audio_channels": "CHANNELS",
+    "bleep_audio": "BLEEP",
+    "merge_pdfs": "MERGE",
+    "organize_pdf_pages": "ORGANIZE",
+    "airdrop": "AIRDROP",
+    "float": "FLOAT",
+    "copy": "COPY",
+    "move": "MOVE",
+    "copy_path": "COPY PATH",
+    "terminal": "TERMINAL",
+}
 
 
 def _available_screen_geometry(global_pos: QPoint) -> QRect:
@@ -91,8 +129,8 @@ class RadialMenu(QWidget):
 
         # data
         self._file_paths: list[str] = []
-        self._format_items: list[str] = []
-        self._tool_items: list[str] = []
+        self._format_items: list[str] = list(DEFAULT_FORMATS)
+        self._tool_items: list[str] = list(DEFAULT_TOOLS)
         self._wheel = "formats"  # formats → tools → actions
         self._sound_enabled = True
         self._global_mode = False
@@ -131,8 +169,8 @@ class RadialMenu(QWidget):
         """Populate the menu and display it centred on the parent."""
         self._global_mode = False
         self._file_paths = file_paths
-        self._format_items = conversions[:12]  # max 12 segments
-        self._tool_items = tools[:12]
+        self._format_items = (conversions if conversions else list(DEFAULT_FORMATS))[:12]
+        self._tool_items = (tools if tools else list(DEFAULT_TOOLS))[:12]
         self._wheel = wheel if wheel in {"formats", "tools", "actions"} else "formats"
         self._hovered_index = -1
         self._hovered_center = False
@@ -169,14 +207,14 @@ class RadialMenu(QWidget):
         self._global_mode = True
         self._global_cursor = global_pos
         self._file_paths = []
-        self._format_items = []
-        self._tool_items = ["compress", "edit_metadata", "crop_images", "trim_video", "merge_pdfs"]
+        self._format_items = list(DEFAULT_FORMATS)
+        self._tool_items = list(DEFAULT_TOOLS)
         self._wheel = wheel if wheel in {"formats", "tools"} else "formats"
         self._hovered_index = -1
         self._hovered_center = False
         # A global overlay is shown directly while a drag is in progress.
         # It does not use the normal fade-in path, so explicitly make it
-        # visible.  Leaving this at the constructor default (0.0) makes
+        # visible. Leaving this at the constructor default (0.0) makes
         # paintEvent() return without drawing anything.
         self._fade_anim.stop()
         self._popup_opacity = 1.0
@@ -190,7 +228,7 @@ class RadialMenu(QWidget):
         """Update hover state while keeping the ring fixed in place.
 
         The ring is anchored at the point where the modifier-drag becomes
-        active.  The dragged pointer is then allowed to move across that
+        active. The dragged pointer is then allowed to move across that
         stationary ring to choose a segment; moving the pointer must not move
         the target itself.
         """
@@ -221,10 +259,59 @@ class RadialMenu(QWidget):
     @property
     def _items(self) -> list[str]:
         if self._wheel == "tools":
-            return self._tool_items
+            return self._tool_items if self._tool_items else list(DEFAULT_TOOLS)
         if self._wheel == "actions":
             return ["airdrop", "float", "copy", "move", "copy_path", "terminal"]
-        return self._format_items
+        return self._format_items if self._format_items else list(DEFAULT_FORMATS)
+
+    def _extract_paths_from_mime(self, mime) -> list[str]:
+        """Safely extract local filesystem paths from MIME payload."""
+        paths: list[str] = []
+        if mime.hasUrls():
+            for url in mime.urls():
+                p = url.toLocalFile()
+                if not p and url.scheme() == "file":
+                    p = unquote(url.path())
+                if p:
+                    paths.append(p)
+        if not paths and mime.hasFormat("text/uri-list"):
+            raw = bytes(mime.data("text/uri-list")).decode("utf-8", errors="ignore")
+            for line in raw.splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                p = QUrl(line).toLocalFile()
+                if not p and line.startswith("file://"):
+                    p = unquote(line[7:])
+                if p:
+                    paths.append(p)
+        if not paths and mime.hasText():
+            raw = mime.text().strip()
+            for line in raw.splitlines():
+                line = line.strip()
+                if line.startswith("file://"):
+                    p = QUrl(line).toLocalFile() or unquote(line[7:])
+                    if p:
+                        paths.append(p)
+                elif line.startswith("/") and os.path.exists(line):
+                    paths.append(line)
+        return paths
+
+    def _update_for_paths(self, paths: list[str]) -> None:
+        """Update items based on detected file paths."""
+        if not paths:
+            return
+        self._file_paths = paths
+        try:
+            from citrus_converter.formats import get_conversions_for_file, get_tools_for_file
+            conversions = get_conversions_for_file(paths[0])
+            tools = get_tools_for_file(paths[0])
+            self._format_items = conversions[:12] if conversions else list(DEFAULT_FORMATS)
+            self._tool_items = tools[:12] if tools else list(DEFAULT_TOOLS)
+        except Exception:
+            self._format_items = list(DEFAULT_FORMATS)
+            self._tool_items = list(DEFAULT_TOOLS)
+        self.update()
 
     # === geometry helpers =================================================
     def _centre(self) -> QPointF:
@@ -335,35 +422,36 @@ class RadialMenu(QWidget):
 
     def dragEnterEvent(self, event) -> None:  # noqa: N802
         event.setDropAction(Qt.CopyAction)
-        if event.mimeData().hasUrls() or event.mimeData().hasFormat("text/uri-list"):
-            paths = [url.toLocalFile() for url in event.mimeData().urls() if url.isLocalFile()]
-            if not paths and event.mimeData().hasFormat("text/uri-list"):
-                raw = event.mimeData().data("text/uri-list").data().decode("utf-8", errors="ignore")
-                paths = [line.strip() for line in raw.splitlines() if line.strip() and not line.startswith("#")]
-            if paths:
-                self._file_paths = paths
-                try:
-                    from citrus_converter.formats import get_conversions_for_file, get_tools_for_file
-                    conversions = get_conversions_for_file(paths[0])
-                    tools = get_tools_for_file(paths[0])
-                    if conversions:
-                        self._format_items = conversions[:12]
-                    if tools:
-                        self._tool_items = tools[:12]
-                except Exception:
-                    pass
+        paths = self._extract_paths_from_mime(event.mimeData())
+        if paths:
+            self._update_for_paths(paths)
+        else:
             self.update()
         event.acceptProposedAction()
 
     def dragMoveEvent(self, event) -> None:  # noqa: N802
+        event.setDropAction(Qt.CopyAction)
+        if not self._file_paths:
+            paths = self._extract_paths_from_mime(event.mimeData())
+            if paths:
+                self._update_for_paths(paths)
+        pos = QPointF(event.pos())
         self._hovered_index = self._index_at(
-            QPointF(event.pos()), allow_outside=self._global_mode
+            pos, allow_outside=self._global_mode
         )
+        c = self._centre()
+        inner_r, _, _ = self._radii()
+        self._hovered_center = math.hypot(pos.x() - c.x(), pos.y() - c.y()) < inner_r
         self.update()
         event.acceptProposedAction()
 
     def dropEvent(self, event) -> None:  # noqa: N802
         """Choose the segment where the held file is released, or cancel if in the center."""
+        if not self._file_paths:
+            paths = self._extract_paths_from_mime(event.mimeData())
+            if paths:
+                self._update_for_paths(paths)
+
         pos = QPointF(event.pos())
         idx = self._index_at(pos, allow_outside=self._global_mode)
         c = self._centre()
@@ -526,8 +614,11 @@ class RadialMenu(QWidget):
         p.setFont(font)
         p.setPen(QPen(TEXT_WHITE if not hovered else QColor("#1e1e1e")))
 
-        display = label.upper()
+        display = TOOL_DISPLAY_NAMES.get(label, label.replace("_", " ").upper())
         fm = QFontMetrics(font)
+        max_width = int((o_r - inner_r) * 1.5)
+        if fm.horizontalAdvance(display) > max_width:
+            display = fm.elidedText(display, Qt.ElideRight, max_width)
         tw = fm.horizontalAdvance(display)
         th = fm.height()
         p.drawText(QPointF(tx - tw / 2, ty + th / 4), display)
@@ -535,37 +626,52 @@ class RadialMenu(QWidget):
     def _draw_centre(self, p: QPainter, c: QPointF, r: float) -> None:
         """Draw the centre circle showing input file info."""
         if self._global_mode and not self._file_paths:
-            p.setPen(QPen(QColor(255, 149, 0, 180), 2.0))
+            # Background circle
+            p.setPen(Qt.NoPen)
+            bg_color = QColor("#382323") if self._hovered_center else QColor("#252525")
+            p.setBrush(QBrush(bg_color))
+            p.drawEllipse(c, r, r)
+
+            # Border ring
+            border_pen = QPen(QColor("#FF453A") if self._hovered_center else ACCENT, 2.0)
+            p.setPen(border_pen)
             p.setBrush(Qt.NoBrush)
             p.drawEllipse(c, r, r)
-            return
 
-        # Background circle
-        p.setPen(Qt.NoPen)
-        bg_color = QColor("#382323") if self._hovered_center else QColor("#252525")
-        p.setBrush(QBrush(bg_color))
-        p.drawEllipse(c, r, r)
+            if self._hovered_center:
+                p.setPen(QPen(QColor("#FF453A")))
+                p.setFont(QFont("Sans", 12, QFont.Bold))
+                fm = QFontMetrics(p.font())
+                cancel_text = "✕ CANCEL"
+                p.drawText(
+                    QPointF(c.x() - fm.horizontalAdvance(cancel_text) / 2, c.y() - 2),
+                    cancel_text,
+                )
+                p.setPen(QPen(TEXT_GREY))
+                p.setFont(QFont("Sans", 8))
+                fm2 = QFontMetrics(p.font())
+                sub_text = "Release to dismiss"
+                p.drawText(
+                    QPointF(c.x() - fm2.horizontalAdvance(sub_text) / 2, c.y() + 16),
+                    sub_text,
+                )
+                return
 
-        # Border ring
-        border_pen = QPen(QColor("#FF453A") if self._hovered_center else ACCENT, 2.0)
-        p.setPen(border_pen)
-        p.setBrush(Qt.NoBrush)
-        p.drawEllipse(c, r, r)
-
-        # When hovered directly in the center, show explicit cancel prompt
-        if self._hovered_center:
-            p.setPen(QPen(QColor("#FF453A")))
-            p.setFont(QFont("Sans", 12, QFont.Bold))
+            # Title
+            title = self._wheel.upper()
+            p.setPen(QPen(ACCENT))
+            p.setFont(QFont("Sans", 11, QFont.Bold))
             fm = QFontMetrics(p.font())
-            cancel_text = "✕ CANCEL"
             p.drawText(
-                QPointF(c.x() - fm.horizontalAdvance(cancel_text) / 2, c.y() - 2),
-                cancel_text,
+                QPointF(c.x() - fm.horizontalAdvance(title) / 2, c.y() - 2),
+                title,
             )
+
+            # Subtitle
             p.setPen(QPen(TEXT_GREY))
             p.setFont(QFont("Sans", 8))
             fm2 = QFontMetrics(p.font())
-            sub_text = "Release to dismiss"
+            sub_text = "Drag file here"
             p.drawText(
                 QPointF(c.x() - fm2.horizontalAdvance(sub_text) / 2, c.y() + 16),
                 sub_text,

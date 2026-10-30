@@ -137,9 +137,13 @@ class MainWindow(QMainWindow):
             conversions = get_conversions_for_file(file_paths[0])
             tools = get_tools_for_file(file_paths[0])
         except Exception:
-            # Fallback — show common formats while converter modules are WIP
-            conversions = ["png", "jpg", "webp", "gif", "bmp", "tiff", "pdf", "svg"]
-            tools = ["compress", "resize", "trim", "rotate"]
+            conversions = []
+            tools = []
+
+        if not conversions:
+            conversions = ["png", "jpg", "webp", "pdf", "mp4", "mp3", "docx", "zip"]
+        if not tools:
+            tools = ["compress", "edit_metadata", "crop_images", "trim_video", "merge_pdfs"]
 
         self.radial_menu.show_for_files(file_paths, conversions, tools)
 
@@ -156,7 +160,14 @@ class MainWindow(QMainWindow):
             conversions = get_conversions_for_file(file_paths[0])
             tools = get_tools_for_file(file_paths[0])
         except Exception:
-            conversions, tools = [], []
+            conversions = []
+            tools = []
+
+        if not conversions:
+            conversions = ["png", "jpg", "webp", "pdf", "mp4", "mp3", "docx", "zip"]
+        if not tools:
+            tools = ["compress", "edit_metadata", "crop_images", "trim_video", "merge_pdfs"]
+
         self.radial_menu.show_for_files(file_paths, conversions, tools, wheel=mode)
 
     def _start_conversion(self, file_paths: list, target_format: str) -> None:

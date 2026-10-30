@@ -123,7 +123,7 @@ class GlobalDragMonitor(QObject):
             if self._active:
                 self._active = False
                 self._mode = None
-                self._menu.dismiss()
+                QTimer.singleShot(60, self._menu.dismiss)
             return
 
         mode = self._mode_for_mask(mask)
